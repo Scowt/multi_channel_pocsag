@@ -69,5 +69,18 @@ JSONL log. Use it if the log is going anywhere but your own disk.
 2. `bin/find-pocsag.sh 60` - dwells per channel, counts real decodes.
 3. `bin/pocsag-multi.sh --av` - watches every channel at once.
 
-Leave gain on `auto`. See the README: manual gain measured ~20x worse than AGC
-on this dongle and made the entire band look dead.
+Use `--gain 49.6`, not `auto`. Measured on this Pi 2026-09-05, the R820T's
+AGC drives the front end hard enough that its own noise and intermod bury the
+signal: the floor sits at -38 dB with carriers only +6-8 dB above it, and
+nothing decodes. At `-g 49.6` the floor drops to -50 dB - close to the -53.3 dB
+quiet-band figure - and the same carriers rise to +18.7 dB, which decodes on the
+first burst. Gain is multiplicative and cannot change carrier-to-noise ratio on
+its own, so a CNR collapse like that is the tell for AGC misbehaving rather than
+for a weak antenna.
+
+If the band looks dead, raise gain before suspecting the antenna. A flat band
+with the floor 10-12 dB HIGHER than usual is the AGC signature; a genuinely
+disconnected antenna lowers the floor instead, because it stops collecting
+ambient RF. The continuous carrier on 148.4961 is the fastest check either way -
+it is always transmitting, so if it is not well clear of the floor, the problem
+is the receive path, not the traffic.

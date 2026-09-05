@@ -54,7 +54,7 @@ Group=pi
 SupplementaryGroups=plugdev
 WorkingDirectory=$RADIO
 ExecStart=$RADIO/.venv/bin/python $RADIO/multichannel.py \\
-  --av --no-color \\
+  --av --no-color --gain 49.6 \\
   --pagermon-config $RADIO/pagermon-client.json
 # The dongle may not be enumerated yet at boot, so keep retrying.
 Restart=always
