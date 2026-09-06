@@ -15,18 +15,38 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "This script needs root. Run: sudo bash $0" >&2; exit 1; }
 
 # systemd units need absolute paths and a real user, and $HOME is /root here.
-RUN_USER="${SUDO_USER:-pi}"
-USER_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6)"
-[[ -n "$USER_HOME" ]] || { echo "cannot resolve home for user '$RUN_USER'" >&2; exit 1; }
 REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PM="$USER_HOME/opt/pagermon"
+
+# Fall back to whoever owns the checkout rather than guessing "pi": on a box
+# where the operator account has another name, guessing would silently install
+# both units pointing at the wrong user.
+RUN_USER="${SUDO_USER:-$(stat -c %U "$REPO")}"
+# `if !` is exempt from set -e, so a missing user is reported instead of
+# aborting the script with no output (a bare assignment would die under pipefail).
+if ! PW_ENT="$(getent passwd "$RUN_USER")"; then
+  echo "no such user '$RUN_USER' - run via sudo, or set SUDO_USER=<your account>" >&2; exit 1
+fi
+USER_HOME="$(cut -d: -f6 <<<"$PW_ENT")"
+[[ -n "$USER_HOME" ]] || { echo "user '$RUN_USER' has no home directory in passwd" >&2; exit 1; }
+RUN_GROUP="$(id -gn "$RUN_USER")"
+
+# sudo scrubs the environment, so an override has to be passed explicitly:
+#   sudo PAGERMON_HOME=/srv/pagermon bash sudo-setup.sh
+PM="${PAGERMON_HOME:-$USER_HOME/opt/pagermon}"
 
 echo "==> user $RUN_USER, repo $REPO, pagermon $PM"
 
-echo "==> 1/5  Installing packages"
-apt-get update
-apt-get install -y rtl-sdr multimon-ng sox gnuradio gr-osmosdr \
-                   nodejs npm sqlite3 git python3-venv
+PKGS=(rtl-sdr multimon-ng sox gnuradio gr-osmosdr nodejs npm sqlite3 git python3-venv)
+if dpkg -s "${PKGS[@]}" >/dev/null 2>&1; then
+  echo "==> 1/5  Packages already installed, skipping apt"
+else
+  echo "==> 1/5  Installing packages"
+  # Advisory, not fatal: re-running this script is the documented way to start
+  # the services, and a busy apt lock must not block that.
+  apt-get update || echo "!!  apt-get update failed - continuing" >&2
+  apt-get install -y "${PKGS[@]}" || {
+    echo "!!  package install failed (apt busy?) - continuing; re-run if something is missing" >&2; }
+fi
 
 echo "==> 2/5  Blacklisting the DVB-T kernel drivers that hold the dongle"
 cat > /etc/modprobe.d/blacklist-rtlsdr.conf <<'EOF'
@@ -62,7 +82,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$RUN_USER
-Group=$RUN_USER
+Group=$RUN_GROUP
 WorkingDirectory=$PM/server
 Environment=NODE_ENV=production
 Environment=PORT=3000
@@ -85,7 +105,7 @@ Wants=pagermon.service
 [Service]
 Type=simple
 User=$RUN_USER
-Group=$RUN_USER
+Group=$RUN_GROUP
 # plugdev + the udev rule above give this user the RTL-SDR.
 SupplementaryGroups=plugdev
 WorkingDirectory=$REPO
@@ -105,11 +125,13 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable pagermon.service pocsag-rx.service >/dev/null
 
-# Only start once setup.sh has produced the things the services need.
+# Only enable and start once setup.sh has produced the things the services need.
+# Enabling earlier would boot-loop both units after any reboot taken between the
+# two setup passes - and the dongle check below can prompt exactly such a reboot.
 if [[ -f "$PM/server/config/config.json" && -f "$REPO/pagermon-client.json" ]]; then
-  echo "==> Config present - starting services"
+  echo "==> Config present - enabling and starting services"
+  systemctl enable pagermon.service pocsag-rx.service >/dev/null
   systemctl restart pagermon.service
   sleep 5
   systemctl restart pocsag-rx.service
@@ -121,7 +143,7 @@ if [[ -f "$PM/server/config/config.json" && -f "$REPO/pagermon-client.json" ]]; 
   echo "Logs:  journalctl -u pagermon -f     journalctl -u pocsag-rx -f"
 else
   echo
-  echo "Units installed and enabled, but NOT started - PagerMon is not configured yet."
+  echo "Units installed, but NOT enabled or started - PagerMon is not configured yet."
   echo "Next:  bash $REPO/setup.sh      (as $RUN_USER, not root)"
   echo "Then:  sudo bash $0             (re-run me to start everything)"
 fi

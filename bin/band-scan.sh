@@ -8,6 +8,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mkdir -p "$ROOT/logs"
 PY="$ROOT/.venv/bin/python"
 DUR="${1:-2m}"
 LO="${2:-148M}"
@@ -17,7 +18,7 @@ CSV="$ROOT/logs/power-$(date +%Y%m%d-%H%M%S).csv"
 GAIN_ARGS=()
 [[ "$GAIN" != "auto" ]] && GAIN_ARGS=(-g "$GAIN")
 
-command -v rtl_power >/dev/null || { echo "rtl_power not installed - run: sudo bash $ROOT/SUDO-SETUP.sh" >&2; exit 1; }
+command -v rtl_power >/dev/null || { echo "rtl_power not installed - run: sudo bash $ROOT/sudo-setup.sh" >&2; exit 1; }
 
 echo "Sweeping $LO..$HI for $DUR at 1 kHz bins (gain $GAIN)"
 echo "CSV: $CSV"

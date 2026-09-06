@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Watch every Victorian POCSAG paging channel at once from a single RTL-SDR.
 
-One 1 MHz capture covers ~148.14-149.16 MHz. Each channel is shifted to
+One 1.0584 MHz capture covers 148.11-149.17 MHz. Each channel is shifted to
 baseband, FM-demodulated and fed to its own multimon-ng, whose output is
-formatted by pocsagfmt.py. Because paging is bursty, watching eight channels
-in parallel finds traffic roughly eight times faster than tuning them serially.
+formatted by pocsagfmt.py. Because paging is bursty, watching ten channels
+in parallel finds traffic roughly ten times faster than tuning them serially.
 
 Signal chain, per channel:
     xlating FIR (decim 6)  ->  LPF (decim 4)  ->  quadrature demod
@@ -30,7 +30,7 @@ import osmosdr
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PY = os.path.join(ROOT, ".venv", "bin", "python")
 
-# Victorian VHF paging channels (MHz). See FREQUENCIES.md.
+# Victorian VHF paging channels (MHz). See the 'Victorian VHF paging channels' table in README.md.
 DEFAULT_CHANNELS = [
     148.3375, 148.3625, 148.4961, 148.5625, 148.5875,
     148.6375, 148.6875, 148.7988, 148.9125, 148.9375,
@@ -51,8 +51,11 @@ class MultiPocsag(gr.top_block):
         self.src.set_sample_rate(samp_rate)
         self.src.set_center_freq(center_hz)
         self.src.set_freq_corr(ppm)
-        # Measured on this dongle: manual gain gives ~20x LESS signal than the
-        # tuner AGC (mean|iq| 0.72 vs 15.5). Auto is the right default.
+        # Measured 2026-09-05: the R820T's AGC drives the front end hard
+        # enough that its own noise and intermod bury the signal - floor at
+        # -38 dB, carriers only +6-8 dB above it, nothing decodes. At 49.6 the
+        # floor drops to -50 dB and the same carriers reach +18.7 dB. Hence a
+        # fixed gain default. See "Gain" in README.md.
         if gain is None:
             self.src.set_gain_mode(True)
         else:
@@ -115,8 +118,9 @@ def main() -> int:
                     help="comma-separated channel frequencies in MHz")
     ap.add_argument("--center", type=float, default=0.0,
                     help="tuner centre in MHz (default: midpoint of the channels)")
-    ap.add_argument("--gain", default="auto",
-                    help="tuner gain in dB, or 'auto' for AGC (default)")
+    ap.add_argument("--gain", default="49.6",
+                    help="tuner gain in dB (default 49.6), or 'auto' for AGC - "
+                         "auto is measurably worse on this hardware, see README")
     ap.add_argument("--ppm", type=int, default=0)
     ap.add_argument("--duration", type=float, default=0,
                     help="stop after N seconds (0 = run until Ctrl-C)")

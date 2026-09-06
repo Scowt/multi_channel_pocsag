@@ -18,7 +18,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$ROOT/.venv/bin/python"
 
 FREQ="${FREQ:-148.9125M}"
-GAIN="${GAIN:-auto}"   # "auto" = let the tuner AGC decide (usually far better)
+GAIN="${GAIN:-auto}"   # AGC. On this dongle 49.6 decodes where auto does not -
+                       # see "Gain" in README.md; override with -g 49.6
 PPM="${PPM:-0}"
 RATE=22050
 SQUELCH="${SQUELCH:-0}"
@@ -38,8 +39,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-command -v rtl_fm      >/dev/null || { echo "rtl_fm not installed - run: sudo bash $ROOT/SUDO-SETUP.sh" >&2; exit 1; }
-command -v multimon-ng >/dev/null || { echo "multimon-ng not installed - run: sudo bash $ROOT/SUDO-SETUP.sh" >&2; exit 1; }
+command -v rtl_fm      >/dev/null || { echo "rtl_fm not installed - run: sudo bash $ROOT/sudo-setup.sh" >&2; exit 1; }
+command -v multimon-ng >/dev/null || { echo "multimon-ng not installed - run: sudo bash $ROOT/sudo-setup.sh" >&2; exit 1; }
 
 GAIN_ARGS=()
 [[ "$GAIN" != "auto" ]] && GAIN_ARGS=(-g "$GAIN")

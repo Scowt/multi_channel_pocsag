@@ -9,5 +9,5 @@
 #   bin/pocsag-multi.sh --channels 148.6875,148.9125
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-command -v multimon-ng >/dev/null || { echo "multimon-ng missing - run SUDO-SETUP.sh" >&2; exit 1; }
+command -v multimon-ng >/dev/null || { echo "multimon-ng missing - run: sudo bash $ROOT/sudo-setup.sh" >&2; exit 1; }
 exec "$ROOT/.venv/bin/python" "$ROOT/multichannel.py" "$@"

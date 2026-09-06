@@ -31,8 +31,15 @@ You should see `Found 1 device(s): 0: Realtek, RTL2838UHIDIR`. If you instead
 get `usb_claim_interface error -6`, the DVB-T kernel drivers are still bound —
 reboot and try again.
 
-PagerMon is installed to `~/opt/pagermon`. Override with `PAGERMON_HOME` if you
-want it elsewhere; `setup.sh` and `bin/pagermon-server.sh` both honour it.
+PagerMon is installed to `~/opt/pagermon`. All three of `setup.sh`,
+`sudo-setup.sh` and `bin/pagermon-server.sh` honour a `PAGERMON_HOME` override,
+but `sudo` scrubs the environment, so it has to be passed explicitly to the root
+pass:
+
+```bash
+sudo PAGERMON_HOME=/srv/pagermon bash sudo-setup.sh
+PAGERMON_HOME=/srv/pagermon bash setup.sh
+```
 
 ## Victorian VHF paging channels
 
@@ -73,7 +80,7 @@ An Ambulance Victoria dispatch on 148.6875 has the shape below.
 
 ```
 @@E26010100001 SIG1 XMPL0000 REQ1200 DSP1201 LOC 10 EXAMPLE ST SAMPLETOWN
-/SPECIMEN RD //TEMPLATE CR M 000 A0 SVVB C 0000 A00 CC: 10D4 - A CHEST
+/SPECIMEN RD //TEMPLATE CR M 000 A0 XMPL C 0000 A00 CC: 10D4 - A CHEST
 PAIN/DISCOMFORT: CLAMMY OR COLD SWEATS Pat:1 Age:90 Years Gen:M [XMPL]
 ```
 
@@ -82,8 +89,8 @@ Fields: `@@E` EAS emergency prefix, `SIG1` signal level, responding unit,
 map reference, `CC:` AMPDS card code (10D4 = chest pain), patient count, age and sex.
 
 Patient transport bookings appear as `PU:` (pickup) messages. VICSES on 148.9125
-uses a different shape - `S26095nnnn`, a unit code such as `[CRAB]` or `[YACK]`,
-and an incident type like TREE DOWN or TRAFFIC HAZARD.
+uses a different shape - `S26095nnnn`, a four-letter unit code in brackets, and
+an incident type like TREE DOWN or TRAFFIC HAZARD.
 
 The 2014 ABC report quoting a CFA radio technician calling for encryption is
 still an accurate description of the situation twelve years later.
@@ -115,10 +122,10 @@ saves every raw decode under `logs/`.
 Paging is bursty and idle most of the time, so tuning one channel at a time
 wastes most of the wait. `pocsag-multi.sh` uses GNU Radio to demodulate every
 channel simultaneously from a single 1.0584 MHz capture covering
-148.19-149.25 MHz:
+148.11-149.17 MHz:
 
 ```bash
-bin/pocsag-multi.sh                  # all 8 channels until Ctrl-C
+bin/pocsag-multi.sh                  # all 10 channels until Ctrl-C
 bin/pocsag-multi.sh --duration 1800  # half an hour, then stop
 bin/pocsag-multi.sh --av             # highlight emergency traffic
 bin/pocsag-multi.sh --channels 148.6875,148.9125
@@ -130,7 +137,8 @@ matters: it separates *no traffic* from *traffic that will not decode*. A
 carrier that comes up but produces no message means a signal is there but is
 the wrong baud, too weak, or not POCSAG at all.
 
-Cost is about 420 MMAC/s for eight channels, which a Pi 5 handles comfortably.
+Cost is about 525 MMAC/s for the ten default channels, which a Pi 5 handles
+comfortably.
 
 ## rtl_fm vs the GNU Radio path
 
@@ -179,8 +187,10 @@ AGC drives the front end hard enough that its own noise and intermod bury the
 signal: the floor sits at -38 dB with carriers only +6-8 dB above it, and
 nothing decodes. At `-g 49.6` the floor drops to -50 dB — close to the -53.3 dB
 quiet-band figure — and the same carriers rise to +18.7 dB, which decodes on the
-first burst. The `pocsag-rx.service` unit pins this, so the service does not
-inherit the AGC's behaviour.
+first burst. It is `multichannel.py`'s default and is pinned in the
+`pocsag-rx.service` unit, so neither inherits the AGC's behaviour. The `rtl_fm`
+helpers (`pocsag-rx.sh`, `band-scan.sh`, `find-pocsag.sh`) still default to
+`auto`; override with `GAIN=49.6` or `-g 49.6`.
 
 Gain is multiplicative and cannot change carrier-to-noise ratio on its own, so a
 CNR collapse like that is the tell for AGC misbehaving rather than for a weak
@@ -299,5 +309,5 @@ project rather than mixing venv and system Python.
   resampling is needed and the arbitrary resampler stays bypassed.
 - Quiet-band noise floor is −53.3 dB on every channel.
 - Gain matters enormously here: at `-g 40` the 148 MHz band looked completely
-  flat. At `-g 49.6` real carriers appeared 15–20 dB above the floor. If you
-  see nothing, raise gain before suspecting the antenna.
+  flat. At `-g 49.6` real carriers appeared 15–20 dB above the floor. See
+  **Gain** above for the diagnosis.

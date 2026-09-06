@@ -18,8 +18,10 @@ PAGERMON_REPO="https://github.com/pagermon/pagermon.git"
 
 command -v node >/dev/null || { echo "node not installed - run: sudo bash $REPO/sudo-setup.sh" >&2; exit 1; }
 command -v git  >/dev/null || { echo "git not installed - run: sudo bash $REPO/sudo-setup.sh" >&2; exit 1; }
+command -v npm  >/dev/null || { echo "npm not installed - run: sudo bash $REPO/sudo-setup.sh" >&2; exit 1; }
 
 echo "==> node $(node --version), npm $(npm --version)"
+mkdir -p "$REPO/logs"
 echo "==> repo $REPO"
 echo "==> pagermon $PM"
 
@@ -40,17 +42,23 @@ echo "/usr/lib/python3/dist-packages" > "$SITE/system-dist-packages.pth"
   || echo "!!  gnuradio NOT importable - is gnuradio installed? re-run sudo-setup.sh" >&2
 
 # ---------------------------------------------------------------------- clone
-if [[ ! -d "$SRV" ]]; then
+if [[ -d "$PM/.git" ]]; then
+  echo "==> PagerMon already cloned at $PM"
+elif [[ -e "$PM" ]]; then
+  # A half-finished clone leaves the directory in place; git clone would abort
+  # on it with a bare "destination path already exists".
+  echo "$PM exists but is not a git checkout - move or remove it, then re-run" >&2; exit 1
+else
   echo "==> Cloning PagerMon into $PM"
   mkdir -p "$(dirname "$PM")"
   git clone --depth 1 "$PAGERMON_REPO" "$PM"
-else
-  echo "==> PagerMon already present at $PM"
 fi
 [[ -d "$SRV" ]] || { echo "$SRV missing after clone - aborting" >&2; exit 1; }
 
 # ---------------------------------------------------------------- npm install
-if [[ ! -d "$SRV/node_modules" ]]; then
+# Gate on a package that must exist, not just the directory: an interrupted
+# install leaves node_modules present but unusable.
+if [[ ! -d "$SRV/node_modules/bcryptjs" ]]; then
   echo "==> Installing server dependencies (this takes several minutes on a Pi)"
   ( cd "$SRV" && npm install --no-audit --no-fund )
 else
@@ -58,17 +66,46 @@ else
 fi
 
 # -------------------------------------------------------------------- secrets
+# Re-running must not lock you out. Regenerating the API key would orphan the
+# running receiver mid-flight, and regenerating the password would print one
+# credential while the file recorded another, so existing secrets are reused
+# unless --regenerate is passed explicitly.
 gen() { openssl rand -hex "$1" 2>/dev/null || head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
-SESSION_SECRET=$(gen 24)
-API_KEY=$(gen 24)
-ADMIN_PASS=$(gen 9)
 
-# bcryptjs ships with PagerMon, so hash the password with the same library the
-# server verifies against.
-ADMIN_HASH=$(cd "$SRV" && node -e "
+REGENERATE=0
+[[ "${1:-}" == "--regenerate" ]] && REGENERATE=1
+
+REUSED=0
+if [[ -f "$SRV/config/config.json" && $REGENERATE -eq 0 ]]; then
+  read -r SESSION_SECRET API_KEY ADMIN_HASH < <(node -e '
+    const c=require(process.argv[1]);
+    const k=(c.auth&&c.auth.keys&&c.auth.keys[0]&&c.auth.keys[0].key)||"";
+    process.stdout.write([
+      (c.global&&c.global.sessionSecret)||"",
+      k,
+      (c.auth&&c.auth.encPass)||"",
+    ].join(" "));
+  ' "$SRV/config/config.json") || true
+  if [[ -n "${SESSION_SECRET:-}" && -n "${API_KEY:-}" && -n "${ADMIN_HASH:-}" ]]; then
+    REUSED=1
+    echo "==> Reusing existing secrets from $SRV/config/config.json"
+    echo "    (pass --regenerate for a fresh password and API key)"
+  else
+    echo "!!  existing config.json is missing secrets - generating new ones" >&2
+  fi
+fi
+
+if [[ $REUSED -eq 0 ]]; then
+  SESSION_SECRET=$(gen 24)
+  API_KEY=$(gen 24)
+  ADMIN_PASS=$(gen 9)
+  # bcryptjs ships with PagerMon, so hash the password with the same library the
+  # server verifies against.
+  ADMIN_HASH=$(cd "$SRV" && node -e "
 const b=require('bcryptjs');
 process.stdout.write(b.hashSync(process.argv[1], 8));
 " "$ADMIN_PASS")
+fi
 
 # -------------------------------------------------------------- server config
 echo "==> Writing $SRV/config/config.json"
@@ -104,6 +141,9 @@ chmod 600 "$REPO/pagermon-client.json"
 
 # ----------------------------------------------------------- credentials file
 IP="$(hostname -I | awk '{print $1}')"
+if [[ $REUSED -eq 1 ]]; then
+  echo "==> Keeping existing $REPO/pagermon-credentials.txt (password unchanged)"
+else
 cat > "$REPO/pagermon-credentials.txt" <<TXT
 PagerMon credentials - generated $(date -Is)
 
@@ -116,6 +156,7 @@ PagerMon credentials - generated $(date -Is)
 Change the password at /admin once you have logged in.
 TXT
 chmod 600 "$REPO/pagermon-credentials.txt"
+fi
 
 echo
 echo "================================================================"
@@ -123,9 +164,13 @@ echo " PagerMon configured at $PM"
 echo
 echo "   URL       http://$IP:3000"
 echo "   Username  admin"
-echo "   Password  $ADMIN_PASS"
-echo
-echo " Saved to $REPO/pagermon-credentials.txt (mode 600)"
+if [[ $REUSED -eq 1 ]]; then
+  echo "   Password  unchanged - see $REPO/pagermon-credentials.txt"
+else
+  echo "   Password  $ADMIN_PASS"
+  echo
+  echo " Saved to $REPO/pagermon-credentials.txt (mode 600)"
+fi
 echo "================================================================"
 echo
 echo "Now start everything with:  sudo bash $REPO/sudo-setup.sh"

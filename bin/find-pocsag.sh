@@ -7,6 +7,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mkdir -p "$ROOT/logs"
 PY="$ROOT/.venv/bin/python"
 DWELL="${1:-45}"
 GAIN="${GAIN:-auto}"
@@ -15,7 +16,7 @@ OUT="$ROOT/logs/survey-$(date +%Y%m%d-%H%M%S).txt"
 GAIN_ARGS=()
 [[ "$GAIN" != "auto" ]] && GAIN_ARGS=(-g "$GAIN")
 
-# Victorian VHF paging channels (Melbourne/statewide). See FREQUENCIES.md.
+# Victorian VHF paging channels (Melbourne/statewide). See the 'Victorian VHF paging channels' table in README.md.
 FREQS=(
   148.3375 148.3625 148.4125 148.4375 148.5125 148.5375
   148.5625 148.5875 148.6125 148.6375 148.6875 148.7125
@@ -23,7 +24,7 @@ FREQS=(
   148.9625 148.9875
 )
 
-command -v rtl_fm >/dev/null || { echo "rtl_fm not installed - run: sudo bash $ROOT/SUDO-SETUP.sh" >&2; exit 1; }
+command -v rtl_fm >/dev/null || { echo "rtl_fm not installed - run: sudo bash $ROOT/sudo-setup.sh" >&2; exit 1; }
 
 echo "Surveying ${#FREQS[@]} channels x ${DWELL}s  (~$(( ${#FREQS[@]} * DWELL / 60 )) min total)"
 echo "Log: $OUT"
